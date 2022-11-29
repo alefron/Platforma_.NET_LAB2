@@ -1,5 +1,4 @@
 ﻿using HtmlAgilityPack;
-using System.Xml;
 
 namespace PlatformaNETlab2
 {
@@ -7,31 +6,51 @@ namespace PlatformaNETlab2
     {
         public async Task<IList<string>> GetWebsiteContent(string url)
         {
-            var htmlContents = new List<string>();
+            var htmlDocuments = new List<string>();
             var client = new HttpClient();
-            var content = await client.GetStringAsync(url);
-            htmlContents.Add(content);
+            var mainPageDocumentResponse = await client.GetAsync(url);
+            var mainPageDocumentString = await mainPageDocumentResponse.Content.ReadAsStringAsync();
+            htmlDocuments.Add(mainPageDocumentString);
 
-            var linkedUrls = GetLinkedSites(content).ToList();
+            var linkedUrls = GetLinkedSites(mainPageDocumentString).ToList();
             var tasks = new List<Task<string>>();
+            var errors = new List<string>();
 
-            linkedUrls.ForEach(linkedUrl =>
+            await Task.Run(async () =>
             {
-                var urlToCall = linkedUrl.Contains("http") ? linkedUrl : url + linkedUrl;
-                tasks.Add(client.GetStringAsync(urlToCall));
+                for (int i = 0; i < linkedUrls.Count; i++)
+                {
+                    var linkedUrl = linkedUrls[i];
+                    var urlToCall = linkedUrl.Contains("http") ? linkedUrl : url + linkedUrl;
+                    HttpResponseMessage response = new HttpResponseMessage();
+                    try
+                    {
+                        response = await client.GetAsync(urlToCall);
+                    }
+                    catch (Exception e)
+                    {
+                        errors.Add(urlToCall + ": error while reading.");
+                    }
+                    finally
+                    {
+                        tasks.Add(response.Content.ReadAsStringAsync());
+                    }
+                }
+                
             });
 
             var responses = await Task.WhenAll(tasks.ToArray());
-            htmlContents.AddRange(responses);
+            errors.ForEach(err => Console.WriteLine(err));
+            htmlDocuments.AddRange(responses);
 
-            return htmlContents;
+            return htmlDocuments;
         }
 
         public IList<string> GetLinkedSites(string html)
         {
             var linkedSites = new List<string>();
             var doc = new HtmlDocument();
-            doc.Load(html);
+            doc.LoadHtml(html);
             foreach (var link in doc.DocumentNode.SelectNodes("//a[@href]"))
             {
                 linkedSites.Add(link.GetAttributeValue("href", string.Empty)); 
